@@ -24,7 +24,8 @@
 //   Long = require('../../lib/mongodb').BSONPure.Long,
 //   Binary = require('../../lib/mongodb').BSONPure.Binary;
 
-var BSON = require('../lib/bson').BSONNative.BSON,
+var NEW_BSON = require('../lib/bson/bson.js').BSON,
+        OLD_BSON = require('../lib/bson/oldbson.js').BSON,
 	Long = require('../lib/bson').Long,
 	ObjectID = require('../lib/bson').ObjectID,
 	Binary = require('../lib/bson').Binary,
@@ -36,9 +37,7 @@ var BSON = require('../lib/bson').BSONNative.BSON,
 	MinKey = require('../lib/bson').MinKey,  
 	Timestamp = require('../lib/bson').Timestamp;
 
-  // console.dir(require('../lib/bson'))
-
-var COUNT = 1000;
+// console.dir(require('../lib/bson'))
 var COUNT = 100;
 
 var object = {
@@ -63,26 +62,116 @@ var object = {
   subArray: [1,2,3,4,5,6,7,8,9,10],
   anotherString: "another string",
   code: new Code("function() {}", {i:1})
-}
+};
+
+// --------------------
+// TEST 1
+// timed serialization
+var serializeObjects = function(bson, numberOfObjects, print) {
+    var s = new Date().getTime();
+    for(var i = 0; i < numberOfObjects; i++) {
+	var objectBSON = bson.serialize(object, null, true)  
+    }
+    if (print) {
+	var e = new Date().getTime();
+	console.log("----------------------");
+	console.log("serializing " + numberOfObjects + " times");
+	console.log("====================== " + (e - s) + " total :: " + ((e - s)/numberOfObjects) + " avg");
+    }
+};
 
 // Number of objects
-var numberOfObjects = 10000;
-var bson = new BSON([Long, ObjectID, Binary, Code, DBRef, Symbol, Double, Timestamp, MaxKey, MinKey]);
-console.log("---------------------- 1")
-var s = new Date()
-// Object serialized
-for(var i = 0; i < numberOfObjects; i++) {
-  objectBSON = bson.serialize(object, null, true)  
-}
-console.log("====================== " + (new Date().getTime() -  s.getTime()) + " :: " + ((new Date().getTime() -  s.getTime()))/numberOfObjects)
+var numberOfObjects = 1000;
+var oldbson = new OLD_BSON([Long, ObjectID, Binary, Code, DBRef, Symbol, Double, Timestamp, MaxKey, MinKey]);
+var newbson = new NEW_BSON([Long, ObjectID, Binary, Code, DBRef, Symbol, Double, Timestamp, MaxKey, MinKey]);
 
-console.log("---------------------- 2")
-var s = new Date()
-// Object serialized
-for(var i = 0; i < numberOfObjects; i++) {
-  bson.deserialize(objectBSON);  
+// load in array of large objects
+var randomLargeObjects = require('./randomarray.json');
+
+// load in the large object
+var largeObj = require('./11mb.json');
+
+// --------------------
+// TEST 2
+// timed deserialization
+var deserializeObjects = function(bson, numberOfObjects, print) {
+    
+    var objectBSON = bson.serialize(object, null, true);
+    var s = new Date().getTime();
+    for(var i = 0; i < numberOfObjects; i++) {
+	bson.deserialize(objectBSON);
+    }
+    if (print) {
+	var e = new Date().getTime();
+	console.log("----------------------");
+	console.log("deserializing " + numberOfObjects + " times");
+	console.log("====================== " + (e - s) + " total :: " + ((e - s)/numberOfObjects) + " avg");
+    }
+};
+
+// --------------------
+// TEST 3
+// large (12 - 16MB) documents
+var handleLargeDocuments = function(bson, numberOfObjects, print) {
+    var s = new Date().getTime();
+    // would do more rounds, but it just takes so long...
+    for (var i = 0; i < numberOfObjects; i++) {
+	var serialized = bson.serialize(largeObj, null, true);
+	bson.deserialize(serialized);
+    }
+    if (print) {
+	var e = new Date().getTime();
+	console.log("----------------------");
+	console.log("handling " + numberOfObjects + " large objects");
+	console.log("====================== " + (e - s) + " total :: " + ((e - s)/numberOfObjects) + " avg");
+    }
+};
+
+// --------------------
+// TEST 4
+// randomly sized objects
+var randomlySizedObjects = function(bson, n, print) {
+    var s = new Date().getTime();
+    // would do more rounds, but it just takes so long...
+    for (var i = 0; i < randomLargeObjects.length; i++) {
+	var serialized = bson.serialize(randomLargeObjects[i], null, true);
+	bson.deserialize(serialized);
+    }
+    if (print) {
+	var e = new Date().getTime();
+	console.log("----------------------");
+	console.log("handling " + numberOfObjects + " randomly-sized objects");
+	console.log("====================== " + (e - s) + " total :: " + ((e - s)/numberOfObjects) + " avg");
+    }
 }
-console.log("====================== " + (new Date().getTime() -  s.getTime()) + " :: " + ((new Date().getTime() -  s.getTime()))/numberOfObjects)
+
+// --------------------
+// PRIME AND RUN
+var primeAndRun = function(fn, bson, numberOfObjects) {
+    for (var i = 0; i < 5; i++) {
+	fn(bson, numberOfObjects, false);
+        process.stdout.write(".");
+    }
+    process.stdout.write("\n");
+    fn(bson, numberOfObjects, true);
+}
+
+// --------------------
+// RUN ALL TESTS
+var runAllTests = function(bson, numberOfObjects) {
+    primeAndRun(serializeObjects, bson, numberOfObjects);
+    primeAndRun(deserializeObjects, bson, numberOfObjects);
+    primeAndRun(handleLargeDocuments, bson, 100);
+    primeAndRun(randomlySizedObjects, bson, numberOfObjects);
+};
+
+// run on OLD BSON first (new buffers each time)
+console.log("\nTesting the OLD implementation-->\n");
+runAllTests(oldbson, numberOfObjects);
+
+// then on NEW BSON (one master buffer)
+console.log("\nTesting the NEW implementation-->\n");
+runAllTests(newbson, numberOfObjects);
 
 // // Buffer With copies of the objectBSON
 // var data = new Buffer(objectBSON.length * numberOfObjects);
